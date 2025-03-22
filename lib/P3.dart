@@ -10,7 +10,6 @@ void main(){
 
 double calculateArea(double length, double width){
   return length * width;
-
 }
 var calArea_ = (double length, double width) => length * width;
 var calArea_with_optional_parameter = (double length, double width, [double? height]) {
