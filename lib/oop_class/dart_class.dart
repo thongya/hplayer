@@ -101,12 +101,30 @@ class Father {
   String taka = "15000";
 
   Father(this.bike, this.taka);
+
+  incomeSource(){
+    print("income source farming");
+  }
 }
 class Son extends Father{
   Son(String bike, String taka) : super(bike, taka);
+
+  @override
+  incomeSource() {
+    // TODO: implement incomeSource
+    return super.incomeSource();
+  }
+  @override
+  String bike = "Yamaha";
+
+  getincome(){
+    super.incomeSource();
+  }
+
 }
 class Daughter extends Father{
   String nijTaka = "25000";
   Daughter(String bike, String taka, String nijTaka) : super(bike, taka);
-
 }
+
+// abstract
