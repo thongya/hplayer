@@ -51,11 +51,24 @@ class DetailScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: Text('Grid view'),),
       body: GridView.count(crossAxisCount: 2,
+      childAspectRatio: 2,
       children: [
-        Container(color: Colors.red, height: 100),
-        Container(color: Colors.blue, height: 100),
-        Container(color: Colors.green, height: 100),
-        Container(color: Colors.yellow, height: 100),
+        Container(
+          color: Colors.red,
+          height: 100,
+          child: Text('amar name', style: TextStyle(color: Colors.white, height: 100),),),
+        Container(
+          color: Colors.yellow,
+          height: 100,
+          child: Text('amar name', style: TextStyle(color: Colors.greenAccent, height: 100),),),
+        Container(
+          color: Colors.blue,
+          height: 100,
+          child: Text('amar name', style: TextStyle(color: Colors.orange, height: 100),),),
+        Container(
+          color: Colors.green,
+          height: 100,
+          child: Text('amar name', style: TextStyle(color: Colors.yellow, height: 100),),),
       ],
       ),
     );
