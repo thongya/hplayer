@@ -1,4 +1,3 @@
-import 'package:f_practice/image_grid.dart';
 import 'package:flutter/material.dart';
 
 void main() {
@@ -10,7 +9,9 @@ class MyApp33 extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return HomeScreen11();
+    return MaterialApp(
+      home: HomeScreen11(),
+    );
   }
 }
 
@@ -41,65 +42,68 @@ class _HomeScreen11State extends State<HomeScreen11> {
   }
 
   void _deleteData(int index) {
-    showDialog(context: context, builder: (BuildContext context) {
-      return AlertDialog(
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
           title: Text('Delete Contact'),
           content: Text('Are you sure you want to delete this contact?'),
           actions: [
-          TextButton(onPressed: ()
-      {
-        Navigator.of(context).pop();
-      }, child: Text('Cancel')
-      ),
-      TextButton(onPressed: () {
-      setState(() {
-      _contacts.removeAt(index);
-      });
-      Navigator.of(context).pop();
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () {
+                setState(() {
+                  _contacts.removeAt(index);
+                });
+                Navigator.of(context).pop();
+              },
+              child: Text('Delete', style: TextStyle(color: Colors.red)),
+            ),
+          ],
+        );
       },
-      child: Text('Delete', style: TextStyle(color: Colors.red,)),
-      ),
-      ],
-      );
-    },
     );
   }
 
-        @override
-        Widget build(BuildContext context)
-    {
-      return Scaffold(
-        appBar: AppBar(title: Text("Contact List")),
-        body: Padding(
-          padding: const EdgeInsets.all(8.0),
-          child: Column(
-            children: [
-              TextField(
-                controller: _nameController,
-                decoration: InputDecoration(labelText: 'Enter name'),
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text("Contact List")),
+      body: Padding(
+        padding: const EdgeInsets.all(8.0),
+        child: Column(
+          children: [
+            TextField(
+              controller: _nameController,
+              decoration: InputDecoration(labelText: 'Enter name'),
+            ),
+            TextField(
+              controller: _phoneController,
+              decoration: InputDecoration(labelText: 'Enter phone'),
+            ),
+            SizedBox(height: 10),
+            ElevatedButton(onPressed: _addData, child: Text('add')),
+            Expanded(
+              child: ListView.builder(
+                itemCount: _contacts.length,
+                itemBuilder: (context, index) {
+                  return ListTile(
+                    leading: Icon(Icons.person),
+                    title: Text(_contacts[index]['name']!),
+                    subtitle: Text(_contacts[index]['phone']!),
+                    onLongPress: () => _deleteData(index),
+                  );
+                },
               ),
-              TextField(
-                controller: _nameController,
-                decoration: InputDecoration(labelText: 'Enter name'),
-              ),
-              SizedBox(height: 10),
-              ElevatedButton(
-                  onPressed: _addData,
-                  child: Text('add')
-
-              ),
-              Expanded(child: ListView.builder(
-                  itemCount: _contacts.length,
-                  itemBuilder: (context, index) {
-                    return ListTile(
-                      title: Text(_contacts[index]['name']!),
-                      subtitle: Text(_contacts[index]['phone']!),
-                      onLongPress: () => _deleteData(index),
-                    );
-                  }))
-            ],
-          ),
+            ),
+          ],
         ),
-      );
-    }
+      ),
+    );
   }
+}
