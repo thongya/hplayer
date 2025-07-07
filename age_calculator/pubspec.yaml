@@ -33,6 +33,7 @@ dependencies:
   intl: ^0.20.2
   pdf: ^3.10.2
   printing: ^5.9.2
+  share_plus: ^7.2.2
   path_provider: ^2.1.1
   csv: ^5.0.1
   url_launcher: ^6.2.5   # For WhatsApp/email sharing
