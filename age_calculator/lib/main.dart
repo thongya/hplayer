@@ -13,59 +13,25 @@ void main() {
   runApp(const AgeCalculatorApp());
 }
 
-class AgeCalculatorApp extends StatelessWidget {
+class AgeCalculatorApp extends StatefulWidget {
   const AgeCalculatorApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    ThemeMode themeMode = ThemeMode.system;
-    return MaterialApp(
-      title: 'Age Calculator',
-      themeMode: themeMode,
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(primarySwatch: Colors.blue),
-      darkTheme: ThemeData.dark(),
-      home: const AgeCalculatorScreen(),
-    );
-  }
+  _AgeCalculatorAppState createState() => _AgeCalculatorAppState();
 }
 
-class AgeCalculatorScreen extends StatefulWidget {
-  const AgeCalculatorScreen({super.key});
-
-  @override
-  _AgeCalculatorScreenState createState() => _AgeCalculatorScreenState();
-}
-
-class _AgeCalculatorScreenState extends State<AgeCalculatorScreen> {
-  final TextEditingController _birthDateController = TextEditingController();
-  final TextEditingController _referenceDateController = TextEditingController();
+class _AgeCalculatorAppState extends State<AgeCalculatorApp> {
   ThemeMode _themeMode = ThemeMode.system;
-
-  DateTime? _birthDate;
-  DateTime _referenceDate = DateTime.now(); // Default to today
-
-  Map<String, String> _ageDetails = {};
-  int _daysUntilNextBirthday = 0;
-  int _monthsUntilNextBirthday = 0;
-  int _lifeExpectancy = 80; // Default life expectancy in years
-  List<String> _upcomingBirthdays = []; // Store upcoming birthdays
-
-  final DateFormat _dateFormatter = DateFormat('yyyy-MM-dd');
-  final DateFormat _birthdayFormatter = DateFormat('d MMMM, yyyy - EEEE'); // For displaying date and day
 
   @override
   void initState() {
     super.initState();
     _loadThemePreference();
-    _referenceDateController.text = _dateFormatter.format(_referenceDate);
-    _calculateAge();
   }
 
   Future<void> _loadThemePreference() async {
     final prefs = await SharedPreferences.getInstance();
     final String? savedTheme = prefs.getString('themeMode');
-
     setState(() {
       switch (savedTheme) {
         case 'light':
@@ -80,6 +46,22 @@ class _AgeCalculatorScreenState extends State<AgeCalculatorScreen> {
     });
   }
 
+  Future<void> _saveThemePreference(ThemeMode themeMode) async {
+    final prefs = await SharedPreferences.getInstance();
+    String themeString;
+    switch (themeMode) {
+      case ThemeMode.light:
+        themeString = 'light';
+        break;
+      case ThemeMode.dark:
+        themeString = 'dark';
+        break;
+      default:
+        themeString = 'system';
+    }
+    await prefs.setString('themeMode', themeString);
+  }
+
   void _toggleTheme() {
     setState(() {
       if (_themeMode == ThemeMode.system) {
@@ -89,7 +71,56 @@ class _AgeCalculatorScreenState extends State<AgeCalculatorScreen> {
       } else {
         _themeMode = ThemeMode.system;
       }
+      _saveThemePreference(_themeMode);
     });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Age Calculator',
+      themeMode: _themeMode,
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(primarySwatch: Colors.blue),
+      darkTheme: ThemeData.dark(),
+      home: AgeCalculatorScreen(onToggleTheme: _toggleTheme),
+    );
+  }
+}
+
+class AgeCalculatorScreen extends StatefulWidget {
+  final VoidCallback onToggleTheme;
+
+  const AgeCalculatorScreen({super.key, required this.onToggleTheme});
+
+  @override
+  _AgeCalculatorScreenState createState() => _AgeCalculatorScreenState();
+}
+
+class _AgeCalculatorScreenState extends State<AgeCalculatorScreen> {
+  final TextEditingController _birthDateController = TextEditingController();
+  final TextEditingController _referenceDateController =
+      TextEditingController();
+
+  DateTime? _birthDate;
+  DateTime _referenceDate = DateTime.now(); // Default to today
+
+  Map<String, String> _ageDetails = {};
+  int _daysUntilNextBirthday = 0;
+  int _monthsUntilNextBirthday = 0;
+  int _lifeExpectancy = 80; // Default life expectancy in years
+  List<String> _upcomingBirthdays = []; // Store upcoming birthdays
+
+  final DateFormat _dateFormatter = DateFormat('yyyy-MM-dd');
+  final DateFormat _birthdayFormatter = DateFormat(
+    'd MMMM, yyyy - EEEE',
+  ); // For displaying date and day
+
+  @override
+  void initState() {
+    super.initState();
+    _referenceDateController.text = _dateFormatter.format(_referenceDate);
+    _calculateAge();
   }
 
   void _calculateAge() {
@@ -104,7 +135,7 @@ class _AgeCalculatorScreenState extends State<AgeCalculatorScreen> {
     if (_referenceDate.isBefore(_birthDate!)) {
       setState(() {
         _ageDetails = {
-          'error': 'Reference date must be after or equal to birth date.'
+          'error': 'Reference date must be after or equal to birth date.',
         };
         _upcomingBirthdays = [];
       });
@@ -148,7 +179,8 @@ class _AgeCalculatorScreenState extends State<AgeCalculatorScreen> {
     }
 
     final difference = nextBirthday.difference(reference);
-    final monthsUntil = (nextBirthday.year - reference.year) * 12 +
+    final monthsUntil =
+        (nextBirthday.year - reference.year) * 12 +
         nextBirthday.month -
         reference.month -
         (nextBirthday.day < reference.day ? 1 : 0);
@@ -157,8 +189,9 @@ class _AgeCalculatorScreenState extends State<AgeCalculatorScreen> {
     // Calculate upcoming birthdays for the next 5 years
     List<String> upcomingBirthdays = [];
     for (int i = 0; i < 5; i++) {
-      final futureYear = reference.month < birth.month ||
-          (reference.month == birth.month && reference.day <= birth.day)
+      final futureYear =
+          reference.month < birth.month ||
+              (reference.month == birth.month && reference.day <= birth.day)
           ? reference.year + i
           : reference.year + i + 1;
       final futureBirthday = DateTime(futureYear, birth.month, birth.day);
@@ -230,51 +263,69 @@ class _AgeCalculatorScreenState extends State<AgeCalculatorScreen> {
   Future<void> _generatePDF() async {
     final pdf = pw.Document();
 
-    pdf.addPage(pw.Page(
-        build: (pw.Context context) => pw.Column(children: [
-          pw.Text('Age Calculation Result',
-              style: pw.TextStyle(fontSize: 18)),
-          pw.SizedBox(height: 20),
-          pw.Text('Birth Date: ${_birthDateController.text}'),
-          pw.Text('Reference Date: ${_referenceDateController.text}'),
-          pw.SizedBox(height: 10),
-          ..._ageDetails.entries.map((entry) => pw.Text(
-              '${entry.key.replaceAllMapped(RegExp(r'[A-Z]'), (match) => ' ${match.group(0)}')} : ${entry.value}')),
-          pw.SizedBox(height: 10),
-          pw.Text('Upcoming Birthdays:'),
-          ..._upcomingBirthdays
-              .map((birthday) => pw.Text(birthday))
-              .toList(),
-        ])));
+    pdf.addPage(
+      pw.Page(
+        build: (pw.Context context) => pw.Column(
+          children: [
+            pw.Text(
+              'Age Calculation Result',
+              style: pw.TextStyle(fontSize: 18),
+            ),
+            pw.SizedBox(height: 20),
+            pw.Text('Birth Date: ${_birthDateController.text}'),
+            pw.Text('Reference Date: ${_referenceDateController.text}'),
+            pw.SizedBox(height: 10),
+            ..._ageDetails.entries.map(
+              (entry) => pw.Text(
+                '${entry.key.replaceAllMapped(RegExp(r'[A-Z]'), (match) => ' ${match.group(0)}')} : ${entry.value}',
+              ),
+            ),
+            pw.SizedBox(height: 10),
+            pw.Text('Upcoming Birthdays:'),
+            ..._upcomingBirthdays.map((birthday) => pw.Text(birthday)).toList(),
+          ],
+        ),
+      ),
+    );
 
     final dir = await getApplicationDocumentsDirectory();
     final file = File('${dir.path}/age_report.pdf');
     await file.writeAsBytes(await pdf.save());
 
-    await Printing.layoutPdf(onLayout: (PdfPageFormat format) async {
-      return await pdf.save();
-    });
+    await Printing.layoutPdf(
+      onLayout: (PdfPageFormat format) async {
+        return await pdf.save();
+      },
+    );
   }
 
   Future<File> _generatePDFForSharing() async {
     final pdf = pw.Document();
 
-    pdf.addPage(pw.Page(
-        build: (pw.Context context) => pw.Column(children: [
-          pw.Text('Age Calculation Result',
-              style: pw.TextStyle(fontSize: 18)),
-          pw.SizedBox(height: 20),
-          pw.Text('Birth Date: ${_birthDateController.text}'),
-          pw.Text('Reference Date: ${_referenceDateController.text}'),
-          pw.SizedBox(height: 10),
-          ..._ageDetails.entries.map((entry) => pw.Text(
-              '${entry.key.replaceAllMapped(RegExp(r'[A-Z]'), (match) => ' ${match.group(0)}')} : ${entry.value}')),
-          pw.SizedBox(height: 10),
-          pw.Text('Upcoming Birthdays:'),
-          ..._upcomingBirthdays
-              .map((birthday) => pw.Text(birthday))
-              .toList(),
-        ])));
+    pdf.addPage(
+      pw.Page(
+        build: (pw.Context context) => pw.Column(
+          children: [
+            pw.Text(
+              'Age Calculation Result',
+              style: pw.TextStyle(fontSize: 18),
+            ),
+            pw.SizedBox(height: 20),
+            pw.Text('Birth Date: ${_birthDateController.text}'),
+            pw.Text('Reference Date: ${_referenceDateController.text}'),
+            pw.SizedBox(height: 10),
+            ..._ageDetails.entries.map(
+              (entry) => pw.Text(
+                '${entry.key.replaceAllMapped(RegExp(r'[A-Z]'), (match) => ' ${match.group(0)}')} : ${entry.value}',
+              ),
+            ),
+            pw.SizedBox(height: 10),
+            pw.Text('Upcoming Birthdays:'),
+            ..._upcomingBirthdays.map((birthday) => pw.Text(birthday)).toList(),
+          ],
+        ),
+      ),
+    );
 
     final dir = await getApplicationDocumentsDirectory();
     final file = File('${dir.path}/age_report.pdf');
@@ -294,7 +345,10 @@ class _AgeCalculatorScreenState extends State<AgeCalculatorScreen> {
       ['Total Hours', _ageDetails['totalHours'] ?? 'N/A'],
       ['Total Minutes', _ageDetails['totalMinutes'] ?? 'N/A'],
       ['Total Seconds', _ageDetails['totalSeconds'] ?? 'N/A'],
-      ['Next Birthday in', '$_monthsUntilNextBirthday months and $_daysUntilNextBirthday days'],
+      [
+        'Next Birthday in',
+        '$_monthsUntilNextBirthday months and $_daysUntilNextBirthday days',
+      ],
       for (int i = 0; i < _upcomingBirthdays.length; i++)
         ['Upcoming Birthday ${i + 1}', _upcomingBirthdays[i]],
     ];
@@ -316,8 +370,10 @@ class _AgeCalculatorScreenState extends State<AgeCalculatorScreen> {
     }
 
     final ageData = _ageDetails.entries
-        .map((e) =>
-    "${e.key.replaceAllMapped(RegExp(r'[A-Z]'), (m) => ' ${m.group(0)}')}: ${e.value}")
+        .map(
+          (e) =>
+              "${e.key.replaceAllMapped(RegExp(r'[A-Z]'), (m) => ' ${m.group(0)}')}: ${e.value}",
+        )
         .join('\n');
 
     final upcomingBirthdaysText = _upcomingBirthdays
@@ -326,7 +382,8 @@ class _AgeCalculatorScreenState extends State<AgeCalculatorScreen> {
         .map((e) => "Upcoming Birthday ${e.key + 1}: ${e.value}")
         .join('\n');
 
-    final text = '''
+    final text =
+        '''
 🎂 Age Calculation Results:
 ----------------------------
 Birth Date: ${_birthDateController.text}
@@ -370,14 +427,14 @@ $upcomingBirthdaysText
         actions: [
           IconButton(
             icon: Icon(
-              _themeMode == ThemeMode.dark
+              Theme.of(context).brightness == Brightness.dark
                   ? Icons.dark_mode
-                  : _themeMode == ThemeMode.light
+                  : Theme.of(context).brightness == Brightness.light
                   ? Icons.light_mode
                   : Icons.brightness_auto,
             ),
-            onPressed: _toggleTheme,
-          )
+            onPressed: widget.onToggleTheme,
+          ),
         ],
       ),
       body: Padding(
@@ -427,7 +484,10 @@ $upcomingBirthdaysText
               else if (_daysUntilNextBirthday > 0)
                 Text(
                   '🎉 Next birthday in $_monthsUntilNextBirthday months and $_daysUntilNextBirthday days!',
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               const SizedBox(height: 10),
               if (_upcomingBirthdays.isNotEmpty)
@@ -473,9 +533,7 @@ $upcomingBirthdaysText
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(
-                      child: const Text('Summary of your life'),
-                    ),
+                    Container(child: const Text('Summary of your life')),
                     ListTile(
                       leading: const Icon(Icons.calendar_month),
                       title: const Text('Exact Age'),
