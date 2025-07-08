@@ -110,7 +110,7 @@ class _AgeCalculatorScreenState extends State<AgeCalculatorScreen> {
   int _monthsUntilNextBirthday = 0;
   List<String> _upcomingBirthdays = []; // Store upcoming birthdays
 
-  final DateFormat _dateFormatter = DateFormat('yyyy-MM-dd');
+  final DateFormat _dateFormatter = DateFormat('dd-MM-yyyy');
   final DateFormat _birthdayFormatter = DateFormat(
     'd MMMM, yyyy - EEEE',
   ); // For displaying date and day
@@ -437,7 +437,7 @@ $upcomingBirthdaysText
                 controller: _birthDateController,
                 decoration: InputDecoration(
                   labelText: 'Birth Date',
-                  hintText: 'Select your birth date or YYYY-MM-DD',
+                  hintText: 'Select your birth date or DD-MM-YYYY',
                   suffixIcon: IconButton(
                     icon: const Icon(Icons.calendar_today),
                     onPressed: () => _pickBirthDate(context),
