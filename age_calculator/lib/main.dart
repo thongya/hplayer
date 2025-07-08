@@ -108,7 +108,6 @@ class _AgeCalculatorScreenState extends State<AgeCalculatorScreen> {
   Map<String, String> _ageDetails = {};
   int _daysUntilNextBirthday = 0;
   int _monthsUntilNextBirthday = 0;
-  int _lifeExpectancy = 80; // Default life expectancy in years
   List<String> _upcomingBirthdays = []; // Store upcoming birthdays
 
   final DateFormat _dateFormatter = DateFormat('yyyy-MM-dd');
@@ -410,15 +409,6 @@ $upcomingBirthdaysText
     );
   }
 
-  double getLifeProgress() {
-    if (_birthDate == null) return 0.0;
-    final now = DateTime.now();
-    final birthYear = _birthDate!.year;
-    final expectedYears = _lifeExpectancy;
-    final currentAge = now.year - birthYear;
-    return (currentAge / expectedYears).clamp(0.0, 1.0);
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -447,6 +437,7 @@ $upcomingBirthdaysText
                 controller: _birthDateController,
                 decoration: InputDecoration(
                   labelText: 'Birth Date',
+                  hintText: 'Select your birth date or YYYY-MM-DD',
                   suffixIcon: IconButton(
                     icon: const Icon(Icons.calendar_today),
                     onPressed: () => _pickBirthDate(context),
@@ -475,6 +466,12 @@ $upcomingBirthdaysText
                   return null;
                 },
               ),
+              const SizedBox(height: 20),
+              if (!_ageDetails.containsKey('error') && _ageDetails.isNotEmpty)
+                Text(
+                  'Current age : ${_ageDetails['yearsMonthsDays']!}',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
               const SizedBox(height: 20),
               if (_daysUntilNextBirthday == 0 && _birthDate != null)
                 const Text(
@@ -533,7 +530,7 @@ $upcomingBirthdaysText
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(child: const Text('Summary of your life')),
+                    const Text('Summary of your life'),
                     ListTile(
                       leading: const Icon(Icons.calendar_month),
                       title: const Text('Exact Age'),
