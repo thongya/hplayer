@@ -454,7 +454,7 @@ $upcomingBirthdaysText
               TextFormField(
                 controller: _referenceDateController,
                 decoration: InputDecoration(
-                  labelText: 'Reference Date',
+                  labelText: 'Today',
                   suffixIcon: IconButton(
                     icon: const Icon(Icons.calendar_today),
                     onPressed: () => _pickReferenceDate(context),
