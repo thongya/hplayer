@@ -1,7 +1,7 @@
 import 'package:just_audio/just_audio.dart';
 import '../../core/utils/logger.dart';
 import '../../domain/entities/track.dart';
-import '../../domain/repositories/music_repository.dart';
+import '../../domain/specific/music_repository.dart';
 import '../models/track_model.dart';
 
 class MusicRepositoryImpl implements MusicRepository {

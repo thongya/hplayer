@@ -1,5 +1,5 @@
 import '../entities/track.dart';
-import '../repositories/music_repository.dart';
+import '../specific/music_repository.dart';
 
 class PlayTrack {
   final MusicRepository repository;
