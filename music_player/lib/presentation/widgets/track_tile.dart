@@ -11,11 +11,12 @@ class TrackTile extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return ListTile(
+      leading: const Icon(Icons.audiotrack),
       title: Text(track.title),
       subtitle: Text(track.artist),
       onTap: () async {
         await ref.read(playTrackProvider).call(track);
-        ref.read(playbackStateProvider.notifier).setTrack(track);
+        ref.read(playbackStateProvider.notifier).state = PlaybackState(isPlaying: true, currentTrack: track);
       },
     );
   }
