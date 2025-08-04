@@ -1,4 +1,3 @@
-// enhanced_music_player_screen.dart
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
@@ -10,7 +9,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/audio_model.dart';
 import 'playlist_manager.dart';
 import '../services/equalizer_manager.dart';
-import '../theme/theme_manager.dart';
 import 'settings_screen.dart';
 import 'playlist_screen.dart';
 import '../services/sleep_timer_manager.dart';
@@ -82,26 +80,28 @@ class _EnhancedMusicPlayerScreenState extends State<EnhancedMusicPlayerScreen> {
 
   Future<void> _requestPermissions() async {
     if (Platform.isAndroid) {
-      // Check Android version
       try {
-        // For Android 11+ (API 30+), we need MANAGE_EXTERNAL_STORAGE
-        if (int.parse(Platform.version.split(' ')[2]) >= 30) {
-          var manageStorageStatus = await Permission.manageExternalStorage.request();
-          var storageStatus = await Permission.storage.request();
+        // Check Android version properly
+        final androidVersion = await _getAndroidVersion();
 
-          if (manageStorageStatus.isGranted && storageStatus.isGranted) {
+        if (androidVersion >= 30) {
+          // Android 11+
+          // Request MANAGE_EXTERNAL_STORAGE for Android 11+
+          var manageStorageStatus = await Permission.manageExternalStorage
+              .request();
+          if (manageStorageStatus.isGranted) {
             _loadAudioFiles();
           } else {
-            // Try with basic permissions as fallback
-            var basicStatus = await Permission.storage.request();
-            if (basicStatus.isGranted) {
+            // Fallback to basic storage permission
+            var storageStatus = await Permission.storage.request();
+            if (storageStatus.isGranted) {
               _loadAudioFiles();
             } else {
               _handlePermissionDenied();
             }
           }
         } else {
-          // For older Android versions
+          // For Android 10 and below
           var status = await Permission.storage.request();
           if (status.isGranted) {
             _loadAudioFiles();
@@ -111,12 +111,8 @@ class _EnhancedMusicPlayerScreenState extends State<EnhancedMusicPlayerScreen> {
         }
       } catch (e) {
         // Fallback if version parsing fails
-        var status = await [
-          Permission.storage,
-          Permission.manageExternalStorage,
-        ].request();
-
-        if (status.values.every((status) => status.isGranted)) {
+        var status = await Permission.storage.request();
+        if (status.isGranted) {
           _loadAudioFiles();
         } else {
           _handlePermissionDenied();
@@ -127,8 +123,28 @@ class _EnhancedMusicPlayerScreenState extends State<EnhancedMusicPlayerScreen> {
     }
   }
 
+  // Add this helper method
+  Future<int> _getAndroidVersion() async {
+    try {
+      // More reliable way to get Android version
+      final versionString = Platform.version;
+      // Example: "Android 11 (API 30)"
+      final regex = RegExp(r'API (\d+)');
+      final match = regex.firstMatch(versionString);
+      if (match != null) {
+        return int.parse(match.group(1)!);
+      }
+      // Fallback
+      return 29; // Assume Android 10 if we can't parse
+    } catch (e) {
+      return 29; // Assume Android 10 if we can't parse
+    }
+  }
+
   void _handlePermissionDenied() {
-    Fluttertoast.showToast(msg: 'Storage permission denied. Please enable in Settings.');
+    Fluttertoast.showToast(
+      msg: 'Storage permission denied. Please enable in Settings.',
+    );
     setState(() {
       _isLoading = false;
     });
@@ -138,7 +154,9 @@ class _EnhancedMusicPlayerScreenState extends State<EnhancedMusicPlayerScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Permission Required'),
-        content: const Text('Storage permission is needed to access your music files. Please enable it in Settings.'),
+        content: const Text(
+          'Storage permission is needed to access your music files. Please enable it in Settings.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -163,31 +181,35 @@ class _EnhancedMusicPlayerScreenState extends State<EnhancedMusicPlayerScreen> {
         '/storage/emulated/0/Music',
         '/storage/emulated/0/Audio',
         '/storage/emulated/0/Download',
-        '/storage/emulated/0/Documents', // Add this for Android 11+
+        '/storage/emulated/0/Documents',
       ];
 
+      // Try multiple approaches for Android 10+
       bool foundFiles = false;
 
+      // Method 1: Try standard directories with better error handling
       for (String dirPath in musicDirectories) {
-        Directory directory = Directory(dirPath);
-        if (await directory.exists()) {
-          try {
+        try {
+          Directory directory = Directory(dirPath);
+          if (await directory.exists()) {
             await _searchAudioFiles(directory, audioFiles);
             if (audioFiles.isNotEmpty && !foundFiles) {
               foundFiles = true;
             }
-          } catch (e) {
-            print('Error accessing directory $dirPath: $e');
-            // Continue with other directories
           }
+        } catch (e) {
+          print('Cannot access directory $dirPath: $e');
+          // Continue with other directories
         }
       }
 
-      // Fallback: Try to access internal app directory
+      // Method 2: Fallback to app-specific directories
       if (audioFiles.isEmpty) {
         try {
           Directory appDocDir = await getApplicationDocumentsDirectory();
-          await _searchAudioFiles(appDocDir, audioFiles);
+          if (await appDocDir.exists()) {
+            await _searchAudioFilesInDirectory(appDocDir, audioFiles);
+          }
         } catch (e) {
           print('Error accessing app documents: $e');
         }
@@ -201,16 +223,84 @@ class _EnhancedMusicPlayerScreenState extends State<EnhancedMusicPlayerScreen> {
       if (audioFiles.isNotEmpty) {
         Fluttertoast.showToast(msg: 'Found ${audioFiles.length} audio files');
       } else {
-        Fluttertoast.showToast(msg: 'No audio files found. Please add music files to your device.');
+        Fluttertoast.showToast(
+          msg: 'No audio files found. Please add music files to your device.',
+        );
+        // Show better empty state with permission guidance
       }
     } catch (e) {
       print('Error loading audio files: $e');
-      Fluttertoast.showToast(msg: 'Error accessing storage. Please check permissions.');
+      Fluttertoast.showToast(
+        msg: 'Error accessing storage. Please check permissions.',
+      );
       setState(() {
         _isLoading = false;
         _audioFiles = []; // Ensure we show the empty state UI
       });
     }
+  }
+
+  // Update the search method with better error handling
+  Future<void> _searchAudioFilesInDirectory(
+    Directory directory,
+    List<AudioFile> audioFiles,
+  ) async {
+    try {
+      // Limit recursion depth to prevent stack overflow
+      await _searchAudioFilesRecursive(directory, audioFiles, 0);
+    } catch (e) {
+      print('Error searching directory ${directory.path}: $e');
+    }
+  }
+
+  Future<void> _searchAudioFilesRecursive(
+    Directory directory,
+    List<AudioFile> audioFiles,
+    int depth,
+  ) async {
+    // Limit recursion depth to prevent issues
+    if (depth > 3) return;
+
+    try {
+      await for (FileSystemEntity entity in directory.list(
+        followLinks: false,
+      )) {
+        if (entity is File) {
+          String fileName = entity.path.split('/').last;
+          if (_isAudioFile(fileName)) {
+            // Avoid duplicates
+            if (!audioFiles.any((file) => file.path == entity.path)) {
+              audioFiles.add(AudioFile(name: fileName, path: entity.path));
+            }
+          }
+        } else if (entity is Directory) {
+          // Skip common system directories
+          final dirName = entity.path.split('/').last;
+          if (!_isSystemDirectory(dirName)) {
+            try {
+              await _searchAudioFilesRecursive(entity, audioFiles, depth + 1);
+            } catch (e) {
+              // Skip directories we can't access
+            }
+          }
+        }
+      }
+    } catch (e) {
+      // Ignore permission errors for individual directories
+      print('Cannot access directory ${directory.path}: $e');
+    }
+  }
+
+  bool _isSystemDirectory(String dirName) {
+    final systemDirs = [
+      '.thumbnails',
+      '.cache',
+      'Android',
+      'cache',
+      '.git',
+      '__MACOSX',
+    ];
+    return systemDirs.contains(dirName);
   }
 
   Future<void> _searchAudioFiles(
@@ -630,22 +720,26 @@ class _EnhancedMusicPlayerScreenState extends State<EnhancedMusicPlayerScreen> {
                           color: Colors.grey,
                         ),
                         const SizedBox(height: 16),
-                        Text(
-                          playlistManager.currentPlaylist != null
-                              ? 'This playlist is empty'
-                              : 'No audio files found',
-                          style: const TextStyle(
-                            fontSize: 18,
-                            color: Colors.grey,
+                        const Text(
+                          'No audio files found or permission denied',
+                          style: TextStyle(fontSize: 18, color: Colors.grey),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 16),
+                        ElevatedButton(
+                          onPressed: () async {
+                            await openAppSettings();
+                          },
+                          child: const Text(
+                            'Open Settings to Grant Permissions',
                           ),
                         ),
-                        if (playlistManager.currentPlaylist == null) ...[
-                          const SizedBox(height: 8),
-                          const Text(
-                            'Add music files to your device',
-                            style: TextStyle(fontSize: 14, color: Colors.grey),
-                          ),
-                        ],
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Please allow storage access and add music files to:\n/Music, /Audio, or /Download folders',
+                          style: TextStyle(fontSize: 12, color: Colors.grey),
+                          textAlign: TextAlign.center,
+                        ),
                       ],
                     ),
                   )

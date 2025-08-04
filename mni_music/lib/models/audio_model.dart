@@ -1,4 +1,3 @@
-// audio_model.dart
 import 'package:equatable/equatable.dart';
 
 class AudioFile extends Equatable {
