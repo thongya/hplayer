@@ -80,28 +80,26 @@ class _EnhancedMusicPlayerScreenState extends State<EnhancedMusicPlayerScreen> {
 
   Future<void> _requestPermissions() async {
     if (Platform.isAndroid) {
+      // Check Android version
       try {
-        // Check Android version properly
-        final androidVersion = await _getAndroidVersion();
+        // For Android 11+ (API 30+), we need MANAGE_EXTERNAL_STORAGE
+        if (int.parse(Platform.version.split(' ')[2]) >= 30) {
+          var manageStorageStatus = await Permission.manageExternalStorage.request();
+          var storageStatus = await Permission.storage.request();
 
-        if (androidVersion >= 30) {
-          // Android 11+
-          // Request MANAGE_EXTERNAL_STORAGE for Android 11+
-          var manageStorageStatus = await Permission.manageExternalStorage
-              .request();
-          if (manageStorageStatus.isGranted) {
+          if (manageStorageStatus.isGranted && storageStatus.isGranted) {
             _loadAudioFiles();
           } else {
-            // Fallback to basic storage permission
-            var storageStatus = await Permission.storage.request();
-            if (storageStatus.isGranted) {
+            // Try with basic permissions as fallback
+            var basicStatus = await Permission.storage.request();
+            if (basicStatus.isGranted) {
               _loadAudioFiles();
             } else {
               _handlePermissionDenied();
             }
           }
         } else {
-          // For Android 10 and below
+          // For older Android versions
           var status = await Permission.storage.request();
           if (status.isGranted) {
             _loadAudioFiles();
@@ -111,8 +109,12 @@ class _EnhancedMusicPlayerScreenState extends State<EnhancedMusicPlayerScreen> {
         }
       } catch (e) {
         // Fallback if version parsing fails
-        var status = await Permission.storage.request();
-        if (status.isGranted) {
+        var status = await [
+          Permission.storage,
+          Permission.manageExternalStorage,
+        ].request();
+
+        if (status.values.every((status) => status.isGranted)) {
           _loadAudioFiles();
         } else {
           _handlePermissionDenied();
@@ -123,28 +125,8 @@ class _EnhancedMusicPlayerScreenState extends State<EnhancedMusicPlayerScreen> {
     }
   }
 
-  // Add this helper method
-  Future<int> _getAndroidVersion() async {
-    try {
-      // More reliable way to get Android version
-      final versionString = Platform.version;
-      // Example: "Android 11 (API 30)"
-      final regex = RegExp(r'API (\d+)');
-      final match = regex.firstMatch(versionString);
-      if (match != null) {
-        return int.parse(match.group(1)!);
-      }
-      // Fallback
-      return 29; // Assume Android 10 if we can't parse
-    } catch (e) {
-      return 29; // Assume Android 10 if we can't parse
-    }
-  }
-
   void _handlePermissionDenied() {
-    Fluttertoast.showToast(
-      msg: 'Storage permission denied. Please enable in Settings.',
-    );
+    Fluttertoast.showToast(msg: 'Storage permission denied. Please enable in Settings.');
     setState(() {
       _isLoading = false;
     });
@@ -154,9 +136,7 @@ class _EnhancedMusicPlayerScreenState extends State<EnhancedMusicPlayerScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Permission Required'),
-        content: const Text(
-          'Storage permission is needed to access your music files. Please enable it in Settings.',
-        ),
+        content: const Text('Storage permission is needed to access your music files. Please enable it in Settings.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -181,35 +161,31 @@ class _EnhancedMusicPlayerScreenState extends State<EnhancedMusicPlayerScreen> {
         '/storage/emulated/0/Music',
         '/storage/emulated/0/Audio',
         '/storage/emulated/0/Download',
-        '/storage/emulated/0/Documents',
+        '/storage/emulated/0/Documents', // Add this for Android 11+
       ];
 
-      // Try multiple approaches for Android 10+
       bool foundFiles = false;
 
-      // Method 1: Try standard directories with better error handling
       for (String dirPath in musicDirectories) {
-        try {
-          Directory directory = Directory(dirPath);
-          if (await directory.exists()) {
+        Directory directory = Directory(dirPath);
+        if (await directory.exists()) {
+          try {
             await _searchAudioFiles(directory, audioFiles);
             if (audioFiles.isNotEmpty && !foundFiles) {
               foundFiles = true;
             }
+          } catch (e) {
+            print('Error accessing directory $dirPath: $e');
+            // Continue with other directories
           }
-        } catch (e) {
-          print('Cannot access directory $dirPath: $e');
-          // Continue with other directories
         }
       }
 
-      // Method 2: Fallback to app-specific directories
+      // Fallback: Try to access internal app directory
       if (audioFiles.isEmpty) {
         try {
           Directory appDocDir = await getApplicationDocumentsDirectory();
-          if (await appDocDir.exists()) {
-            await _searchAudioFilesInDirectory(appDocDir, audioFiles);
-          }
+          await _searchAudioFiles(appDocDir, audioFiles);
         } catch (e) {
           print('Error accessing app documents: $e');
         }
@@ -223,16 +199,11 @@ class _EnhancedMusicPlayerScreenState extends State<EnhancedMusicPlayerScreen> {
       if (audioFiles.isNotEmpty) {
         Fluttertoast.showToast(msg: 'Found ${audioFiles.length} audio files');
       } else {
-        Fluttertoast.showToast(
-          msg: 'No audio files found. Please add music files to your device.',
-        );
-        // Show better empty state with permission guidance
+        Fluttertoast.showToast(msg: 'No audio files found. Please add music files to your device.');
       }
     } catch (e) {
       print('Error loading audio files: $e');
-      Fluttertoast.showToast(
-        msg: 'Error accessing storage. Please check permissions.',
-      );
+      Fluttertoast.showToast(msg: 'Error accessing storage. Please check permissions.');
       setState(() {
         _isLoading = false;
         _audioFiles = []; // Ensure we show the empty state UI
@@ -240,73 +211,10 @@ class _EnhancedMusicPlayerScreenState extends State<EnhancedMusicPlayerScreen> {
     }
   }
 
-  // Update the search method with better error handling
-  Future<void> _searchAudioFilesInDirectory(
-    Directory directory,
-    List<AudioFile> audioFiles,
-  ) async {
-    try {
-      // Limit recursion depth to prevent stack overflow
-      await _searchAudioFilesRecursive(directory, audioFiles, 0);
-    } catch (e) {
-      print('Error searching directory ${directory.path}: $e');
-    }
-  }
-
-  Future<void> _searchAudioFilesRecursive(
-    Directory directory,
-    List<AudioFile> audioFiles,
-    int depth,
-  ) async {
-    // Limit recursion depth to prevent issues
-    if (depth > 3) return;
-
-    try {
-      await for (FileSystemEntity entity in directory.list(
-        followLinks: false,
-      )) {
-        if (entity is File) {
-          String fileName = entity.path.split('/').last;
-          if (_isAudioFile(fileName)) {
-            // Avoid duplicates
-            if (!audioFiles.any((file) => file.path == entity.path)) {
-              audioFiles.add(AudioFile(name: fileName, path: entity.path));
-            }
-          }
-        } else if (entity is Directory) {
-          // Skip common system directories
-          final dirName = entity.path.split('/').last;
-          if (!_isSystemDirectory(dirName)) {
-            try {
-              await _searchAudioFilesRecursive(entity, audioFiles, depth + 1);
-            } catch (e) {
-              // Skip directories we can't access
-            }
-          }
-        }
-      }
-    } catch (e) {
-      // Ignore permission errors for individual directories
-      print('Cannot access directory ${directory.path}: $e');
-    }
-  }
-
-  bool _isSystemDirectory(String dirName) {
-    final systemDirs = [
-      '.thumbnails',
-      '.cache',
-      'Android',
-      'cache',
-      '.git',
-      '__MACOSX',
-    ];
-    return systemDirs.contains(dirName);
-  }
-
   Future<void> _searchAudioFiles(
-    Directory directory,
-    List<AudioFile> audioFiles,
-  ) async {
+      Directory directory,
+      List<AudioFile> audioFiles,
+      ) async {
     try {
       await for (FileSystemEntity entity in directory.list()) {
         if (entity is File) {
@@ -369,7 +277,7 @@ class _EnhancedMusicPlayerScreenState extends State<EnhancedMusicPlayerScreen> {
       int nextIndex;
       if (_isShuffle) {
         nextIndex =
-            (DateTime.now().millisecondsSinceEpoch % _audioFiles.length);
+        (DateTime.now().millisecondsSinceEpoch % _audioFiles.length);
       } else {
         nextIndex = (_currentIndex + 1) % _audioFiles.length;
       }
@@ -485,20 +393,20 @@ class _EnhancedMusicPlayerScreenState extends State<EnhancedMusicPlayerScreen> {
                   isLabelVisible: sleepTimerManager.isActive,
                   label: sleepTimerManager.isActive
                       ? Container(
-                          padding: const EdgeInsets.all(4),
-                          decoration: const BoxDecoration(
-                            color: Colors.red,
-                            shape: BoxShape.circle,
-                          ),
-                          child: Text(
-                            '${sleepTimerManager.timeLeft.inMinutes + 1}',
-                            style: const TextStyle(
-                              fontSize: 8,
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        )
+                    padding: const EdgeInsets.all(4),
+                    decoration: const BoxDecoration(
+                      color: Colors.red,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Text(
+                      '${sleepTimerManager.timeLeft.inMinutes + 1}',
+                      style: const TextStyle(
+                        fontSize: 8,
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  )
                       : null,
                   child: const Icon(Icons.timer),
                 ),
@@ -711,150 +619,146 @@ class _EnhancedMusicPlayerScreenState extends State<EnhancedMusicPlayerScreen> {
                 ? const Center(child: CircularProgressIndicator())
                 : displayedSongs.isEmpty
                 ? Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(
-                          Icons.music_off,
-                          size: 60,
-                          color: Colors.grey,
-                        ),
-                        const SizedBox(height: 16),
-                        const Text(
-                          'No audio files found or permission denied',
-                          style: TextStyle(fontSize: 18, color: Colors.grey),
-                          textAlign: TextAlign.center,
-                        ),
-                        const SizedBox(height: 16),
-                        ElevatedButton(
-                          onPressed: () async {
-                            await openAppSettings();
-                          },
-                          child: const Text(
-                            'Open Settings to Grant Permissions',
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        const Text(
-                          'Please allow storage access and add music files to:\n/Music, /Audio, or /Download folders',
-                          style: TextStyle(fontSize: 12, color: Colors.grey),
-                          textAlign: TextAlign.center,
-                        ),
-                      ],
-                    ),
-                  )
-                : RefreshIndicator(
-                    onRefresh: _loadAudioFiles,
-                    child: ListView.builder(
-                      itemCount: displayedSongs.length,
-                      itemBuilder: (context, index) {
-                        return Card(
-                          margin: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 4,
-                          ),
-                          child: ListTile(
-                            leading: Container(
-                              width: 50,
-                              height: 50,
-                              decoration: BoxDecoration(
-                                color: Colors.blue.withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(25),
-                              ),
-                              child: const Icon(
-                                Icons.music_note,
-                                color: Colors.blue,
-                              ),
-                            ),
-                            title: Text(
-                              displayedSongs[index].name,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                            subtitle: Text(
-                              displayedSongs[index].path
-                                  .split('/')
-                                  .lastWhere(
-                                    (element) =>
-                                        element != displayedSongs[index].name,
-                                    orElse: () => 'Root',
-                                  ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey,
-                              ),
-                            ),
-                            trailing: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                if (playlistManager.currentPlaylist == null)
-                                  IconButton(
-                                    icon: const Icon(Icons.add, size: 20),
-                                    onPressed: () => _showAddToPlaylistDialog(
-                                      displayedSongs[index],
-                                    ),
-                                  ),
-                                if (_currentIndex == index)
-                                  Container(
-                                    width: 24,
-                                    height: 24,
-                                    decoration: BoxDecoration(
-                                      color: _isPlaying
-                                          ? Colors.blue
-                                          : Colors.grey,
-                                      shape: BoxShape.circle,
-                                    ),
-                                    child: Icon(
-                                      _isPlaying
-                                          ? Icons.play_arrow
-                                          : Icons.pause,
-                                      size: 16,
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                              ],
-                            ),
-                            onTap: () => _playAudio(index),
-                          ),
-                        );
-                      },
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(
+                    Icons.music_off,
+                    size: 60,
+                    color: Colors.grey,
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    playlistManager.currentPlaylist != null
+                        ? 'This playlist is empty'
+                        : 'No audio files found',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      color: Colors.grey,
                     ),
                   ),
+                  if (playlistManager.currentPlaylist == null) ...[
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Add music files to your device',
+                      style: TextStyle(fontSize: 14, color: Colors.grey),
+                    ),
+                  ],
+                ],
+              ),
+            )
+                : RefreshIndicator(
+              onRefresh: _loadAudioFiles,
+              child: ListView.builder(
+                itemCount: displayedSongs.length,
+                itemBuilder: (context, index) {
+                  return Card(
+                    margin: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 4,
+                    ),
+                    child: ListTile(
+                      leading: Container(
+                        width: 50,
+                        height: 50,
+                        decoration: BoxDecoration(
+                          color: Colors.blue.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(25),
+                        ),
+                        child: const Icon(
+                          Icons.music_note,
+                          color: Colors.blue,
+                        ),
+                      ),
+                      title: Text(
+                        displayedSongs[index].name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      subtitle: Text(
+                        displayedSongs[index].path
+                            .split('/')
+                            .lastWhere(
+                              (element) =>
+                          element != displayedSongs[index].name,
+                          orElse: () => 'Root',
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey,
+                        ),
+                      ),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (playlistManager.currentPlaylist == null)
+                            IconButton(
+                              icon: const Icon(Icons.add, size: 20),
+                              onPressed: () => _showAddToPlaylistDialog(
+                                displayedSongs[index],
+                              ),
+                            ),
+                          if (_currentIndex == index)
+                            Container(
+                              width: 24,
+                              height: 24,
+                              decoration: BoxDecoration(
+                                color: _isPlaying
+                                    ? Colors.blue
+                                    : Colors.grey,
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(
+                                _isPlaying
+                                    ? Icons.play_arrow
+                                    : Icons.pause,
+                                size: 16,
+                                color: Colors.white,
+                              ),
+                            ),
+                        ],
+                      ),
+                      onTap: () => _playAudio(index),
+                    ),
+                  );
+                },
+              ),
+            ),
           ),
         ],
       ),
       bottomNavigationBar: playlistManager.currentPlaylist != null
           ? BottomAppBar(
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  TextButton(
-                    onPressed: () {
-                      playlistManager.setCurrentPlaylist(null);
-                    },
-                    child: const Text('Back to All Songs'),
-                  ),
-                  TextButton(
-                    onPressed: () {
-                      // Play entire playlist
-                      if (playlistManager.currentPlaylist!.songs.isNotEmpty) {
-                        setState(() {
-                          _audioFiles = playlistManager.currentPlaylist!.songs;
-                          _currentIndex = 0;
-                        });
-                        _playAudio(0);
-                      }
-                    },
-                    child: const Text('Play All'),
-                  ),
-                ],
-              ),
-            )
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            TextButton(
+              onPressed: () {
+                playlistManager.setCurrentPlaylist(null);
+              },
+              child: const Text('Back to All Songs'),
+            ),
+            TextButton(
+              onPressed: () {
+                // Play entire playlist
+                if (playlistManager.currentPlaylist!.songs.isNotEmpty) {
+                  setState(() {
+                    _audioFiles = playlistManager.currentPlaylist!.songs;
+                    _currentIndex = 0;
+                  });
+                  _playAudio(0);
+                }
+              },
+              child: const Text('Play All'),
+            ),
+          ],
+        ),
+      )
           : null,
     );
   }
