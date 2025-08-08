@@ -1,9 +1,9 @@
 // main.dart
 import 'package:flutter/material.dart';
+import 'package:mni_music/screens/home_screen.dart';
 import 'package:mni_music/services/sleep_timer_manager.dart';
 import 'package:provider/provider.dart';
 import 'package:audio_service/audio_service.dart';
-import 'screens/enhanced_music_player_screen.dart';
 import 'theme/theme_manager.dart';
 import 'screens/playlist_manager.dart';
 import 'services/equalizer_manager.dart';
@@ -16,10 +16,11 @@ Future<void> main() async {
   final audioHandler = await AudioService.init(
     builder: () => AudioServiceHandler(),
     config: const AudioServiceConfig(
-      androidNotificationChannelId: 'com.yourcompany.musicplayer.channel.audio',
+      androidNotificationChannelId: 'com.example.mni_music.channel.audio',
       androidNotificationChannelName: 'Music Player',
       androidNotificationOngoing: true,
       androidStopForegroundOnPause: true,
+      androidNotificationIcon: 'mipmap/ic_launcher',
     ),
   );
 
@@ -36,6 +37,7 @@ Future<void> main() async {
             return sleepTimerManager;
           },
         ),
+        Provider<AudioServiceHandler>.value(value: audioHandler),
       ],
       child: MyApp(audioHandler: audioHandler),
     ),
@@ -56,7 +58,7 @@ class MyApp extends StatelessWidget {
       theme: themeManager.lightTheme,
       darkTheme: themeManager.darkTheme,
       themeMode: themeManager.getThemeMode(),
-      home: const EnhancedMusicPlayerScreen(),
+      home: const HomeScreen(),
       debugShowCheckedModeBanner: false,
     );
   }

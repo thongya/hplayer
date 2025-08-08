@@ -1,4 +1,6 @@
+import 'dart:io';
 import 'package:audio_service/audio_service.dart';
+import 'package:fluttertoast/fluttertoast.dart';
 import 'package:just_audio/just_audio.dart';
 import '../models/audio_model.dart';
 
@@ -17,7 +19,12 @@ class AudioServiceHandler extends BaseAudioHandler with SeekHandler {
       final playing = state.playing;
       final processingState = state.processingState;
 
-      mediaItem.add(_createMediaItem(_currentIndex));
+      // Update media item
+      if (_currentIndex < _playlist.length) {
+        mediaItem.add(_createMediaItem(_currentIndex));
+      }
+
+      // Update playback state
       playbackState.add(PlaybackState(
         controls: [
           MediaControl.skipToPrevious,
@@ -48,6 +55,13 @@ class AudioServiceHandler extends BaseAudioHandler with SeekHandler {
       final state = playbackState.value;
       playbackState.add(state.copyWith(updatePosition: position));
     });
+
+    // Handle completion
+    _player.processingStateStream.listen((state) {
+      if (state == ProcessingState.completed) {
+        skipToNext();
+      }
+    });
   }
 
   MediaItem _createMediaItem(int index) {
@@ -62,8 +76,10 @@ class AudioServiceHandler extends BaseAudioHandler with SeekHandler {
     return MediaItem(
       id: song.path,
       title: song.name,
-      artist: 'Unknown Artist',
-      album: 'Unknown Album',
+      artist: song.artist ?? 'Unknown Artist',
+      album: song.album ?? 'Unknown Album',
+      duration: song.duration != null ? Duration(milliseconds: song.duration!) : null,
+      artUri: null, // You can add album art here if available
     );
   }
 
@@ -96,28 +112,47 @@ class AudioServiceHandler extends BaseAudioHandler with SeekHandler {
     await _loadAndPlay(_currentIndex);
   }
 
+  Future<void> _loadAndPlay(int index) async {
+    if (_playlist.isEmpty || index >= _playlist.length || index < 0) return;
+    try {
+      final file = File(_playlist[index].path);
+      if (await file.exists()) {
+        await _player.setFilePath(_playlist[index].path);
+        mediaItem.add(_createMediaItem(index));
+        await _player.play();
+      } else {
+        print('File not found: ${_playlist[index].path}');
+        Fluttertoast.showToast(msg: 'Audio file not found');
+        skipToNext(); // Try next track if current file is missing
+      }
+    } catch (e) {
+      print('Error playing audio: $e');
+      Fluttertoast.showToast(msg: 'Error playing audio: $e');
+    }
+  }
+
   Future<void> setPlaylist(List<AudioFile> playlist, int startIndex) async {
     _playlist.clear();
     _playlist.addAll(playlist);
-    _currentIndex = startIndex;
-    await _loadAndPlay(startIndex);
+    _currentIndex = startIndex.clamp(0, playlist.length - 1);
+
+    final mediaItems = playlist.map((song) => MediaItem(
+      id: song.path,
+      title: song.name,
+      artist: song.artist ?? 'Unknown Artist',
+      album: song.album ?? 'Unknown Album',
+      duration: song.duration != null ? Duration(seconds: song.duration!) : null,
+    )).toList();
+
+    queue.add(mediaItems);
+
+    await _loadAndPlay(_currentIndex);
   }
 
   Future<void> playAtIndex(int index) async {
     if (index >= 0 && index < _playlist.length) {
       _currentIndex = index;
       await _loadAndPlay(index);
-    }
-  }
-
-  Future<void> _loadAndPlay(int index) async {
-    if (_playlist.isEmpty || index >= _playlist.length) return;
-
-    try {
-      await _player.setFilePath(_playlist[index].path);
-      await _player.play();
-    } catch (e) {
-      print('Error playing audio: $e');
     }
   }
 

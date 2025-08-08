@@ -1,7 +1,9 @@
+// lib/screens/enhanced_music_player_screen.dart
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:just_audio/just_audio.dart';
-import 'package:path_provider/path_provider.dart';
+import 'package:logger/logger.dart';
+import 'package:audio_service/audio_service.dart';
+import 'package:on_audio_query/on_audio_query.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'package:provider/provider.dart';
@@ -24,7 +26,7 @@ class EnhancedMusicPlayerScreen extends StatefulWidget {
 }
 
 class _EnhancedMusicPlayerScreenState extends State<EnhancedMusicPlayerScreen> {
-  final AudioPlayer _audioPlayer = AudioPlayer();
+  final logger = Logger();
   List<AudioFile> _audioFiles = [];
   int _currentIndex = 0;
   bool _isPlaying = false;
@@ -34,9 +36,14 @@ class _EnhancedMusicPlayerScreenState extends State<EnhancedMusicPlayerScreen> {
   bool _isShuffle = false;
   bool _isRepeat = false;
 
+  // Add AudioServiceHandler reference
+  late AudioServiceHandler _audioHandler;
+
   @override
   void initState() {
     super.initState();
+    // Get the AudioServiceHandler from Provider
+    _audioHandler = Provider.of<AudioServiceHandler>(context, listen: false);
     _requestPermissions();
     _setupAudioPlayer();
     _loadLastPlayed();
@@ -50,56 +57,59 @@ class _EnhancedMusicPlayerScreenState extends State<EnhancedMusicPlayerScreen> {
   }
 
   void _setupAudioPlayer() {
-    _audioPlayer.durationStream.listen((duration) {
-      setState(() {
-        _duration = duration ?? Duration.zero;
-      });
-    });
-
-    _audioPlayer.positionStream.listen((position) {
-      setState(() {
-        _position = position;
-      });
-    });
-
-    _audioPlayer.playerStateStream.listen((state) {
+    // Listen to playback state from AudioService
+    _audioHandler.playbackState.listen((state) {
       setState(() {
         _isPlaying = state.playing;
+        _position = state.updatePosition;
       });
 
-      if (state.processingState == ProcessingState.completed) {
+      // Handle completion
+      if (state.processingState == AudioProcessingState.completed) {
         if (_isRepeat) {
-          _audioPlayer.seek(Duration.zero);
-          _audioPlayer.play();
+          _audioHandler.seek(Duration.zero);
+          _audioHandler.play();
         } else {
           _playNext();
         }
+      }
+    });
+
+    // Listen to media item changes for duration
+    _audioHandler.mediaItem.listen((mediaItem) {
+      if (mediaItem != null) {
+        setState(() {
+          _duration = mediaItem.duration ?? Duration.zero;
+        });
       }
     });
   }
 
   Future<void> _requestPermissions() async {
     if (Platform.isAndroid) {
-      // Check Android version
       try {
-        // For Android 11+ (API 30+), we need MANAGE_EXTERNAL_STORAGE
-        if (int.parse(Platform.version.split(' ')[2]) >= 30) {
-          var manageStorageStatus = await Permission.manageExternalStorage.request();
-          var storageStatus = await Permission.storage.request();
+        // Check Android version
+        int sdkVersion = int.parse(Platform.version.split(' ')[2]);
 
-          if (manageStorageStatus.isGranted && storageStatus.isGranted) {
+        if (sdkVersion >= 33) {
+          // Android 13+ (API 33+)
+          var status = await Permission.audio.request();
+          if (status.isGranted) {
             _loadAudioFiles();
           } else {
-            // Try with basic permissions as fallback
-            var basicStatus = await Permission.storage.request();
-            if (basicStatus.isGranted) {
-              _loadAudioFiles();
-            } else {
-              _handlePermissionDenied();
-            }
+            _handlePermissionDenied();
+          }
+        } else if (sdkVersion >= 30) {
+          // Android 11-12 (API 30-32)
+          var manageStorageStatus = await Permission.manageExternalStorage.request();
+          var storageStatus = await Permission.storage.request();
+          if (manageStorageStatus.isGranted || storageStatus.isGranted) {
+            _loadAudioFiles();
+          } else {
+            _handlePermissionDenied();
           }
         } else {
-          // For older Android versions
+          // Android 10 and below
           var status = await Permission.storage.request();
           if (status.isGranted) {
             _loadAudioFiles();
@@ -108,13 +118,14 @@ class _EnhancedMusicPlayerScreenState extends State<EnhancedMusicPlayerScreen> {
           }
         }
       } catch (e) {
-        // Fallback if version parsing fails
+        print('Error checking Android version: $e');
+        // Fallback for all permissions
         var status = await [
+          Permission.audio,
           Permission.storage,
           Permission.manageExternalStorage,
         ].request();
-
-        if (status.values.every((status) => status.isGranted)) {
+        if (status.values.any((status) => status.isGranted)) {
           _loadAudioFiles();
         } else {
           _handlePermissionDenied();
@@ -130,7 +141,6 @@ class _EnhancedMusicPlayerScreenState extends State<EnhancedMusicPlayerScreen> {
     setState(() {
       _isLoading = false;
     });
-
     // Show dialog to guide user to settings
     showDialog(
       context: context,
@@ -155,41 +165,25 @@ class _EnhancedMusicPlayerScreenState extends State<EnhancedMusicPlayerScreen> {
   }
 
   Future<void> _loadAudioFiles() async {
+    final audioQuery = OnAudioQuery();
     try {
-      List<AudioFile> audioFiles = [];
-      List<String> musicDirectories = [
-        '/storage/emulated/0/Music',
-        '/storage/emulated/0/Audio',
-        '/storage/emulated/0/Download',
-        '/storage/emulated/0/Documents', // Add this for Android 11+
-      ];
-
-      bool foundFiles = false;
-
-      for (String dirPath in musicDirectories) {
-        Directory directory = Directory(dirPath);
-        if (await directory.exists()) {
-          try {
-            await _searchAudioFiles(directory, audioFiles);
-            if (audioFiles.isNotEmpty && !foundFiles) {
-              foundFiles = true;
-            }
-          } catch (e) {
-            print('Error accessing directory $dirPath: $e');
-            // Continue with other directories
-          }
-        }
+      logger.i('Loading audio file');
+      // Check if permission is granted
+      bool permissionStatus = await audioQuery.permissionsStatus();
+      if (!permissionStatus) {
+        await audioQuery.permissionsRequest();
       }
 
-      // Fallback: Try to access internal app directory
-      if (audioFiles.isEmpty) {
-        try {
-          Directory appDocDir = await getApplicationDocumentsDirectory();
-          await _searchAudioFiles(appDocDir, audioFiles);
-        } catch (e) {
-          print('Error accessing app documents: $e');
-        }
-      }
+      List<SongModel> songs = await audioQuery.querySongs();
+      List<AudioFile> audioFiles = songs.map((song) {
+        return AudioFile(
+          name: song.title,
+          path: song.data,
+          duration: (song.duration ?? 0) ~/ 1000, // Convert ms to seconds
+          artist: song.artist,
+          album: song.album,
+        );
+      }).toList();
 
       setState(() {
         _audioFiles = audioFiles;
@@ -201,33 +195,14 @@ class _EnhancedMusicPlayerScreenState extends State<EnhancedMusicPlayerScreen> {
       } else {
         Fluttertoast.showToast(msg: 'No audio files found. Please add music files to your device.');
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      logger.e('Error loading audio files', error: e, stackTrace: stackTrace);
       print('Error loading audio files: $e');
-      Fluttertoast.showToast(msg: 'Error accessing storage. Please check permissions.');
+      Fluttertoast.showToast(msg: 'Error loading audio files: $e');
       setState(() {
         _isLoading = false;
-        _audioFiles = []; // Ensure we show the empty state UI
+        _audioFiles = [];
       });
-    }
-  }
-
-  Future<void> _searchAudioFiles(
-      Directory directory,
-      List<AudioFile> audioFiles,
-      ) async {
-    try {
-      await for (FileSystemEntity entity in directory.list()) {
-        if (entity is File) {
-          String fileName = entity.path.split('/').last;
-          if (_isAudioFile(fileName)) {
-            audioFiles.add(AudioFile(name: fileName, path: entity.path));
-          }
-        } else if (entity is Directory) {
-          await _searchAudioFiles(entity, audioFiles);
-        }
-      }
-    } catch (e) {
-      // Ignore permission errors
     }
   }
 
@@ -250,8 +225,8 @@ class _EnhancedMusicPlayerScreenState extends State<EnhancedMusicPlayerScreen> {
         _currentIndex = index;
       });
 
-      await _audioPlayer.setFilePath(_audioFiles[index].path);
-      await _audioPlayer.play();
+      // Set the playlist and play using AudioService
+      await _audioHandler.setPlaylist(_audioFiles, index);
       _saveLastPlayed();
     } catch (e) {
       Fluttertoast.showToast(msg: 'Error playing audio: $e');
@@ -260,14 +235,13 @@ class _EnhancedMusicPlayerScreenState extends State<EnhancedMusicPlayerScreen> {
 
   Future<void> _togglePlayPause() async {
     if (_isPlaying) {
-      await _audioPlayer.pause();
+      await _audioHandler.pause();
     } else {
       if (_audioFiles.isNotEmpty) {
-        if (_audioPlayer.playerState.processingState ==
-            ProcessingState.completed) {
-          await _audioPlayer.seek(Duration.zero);
+        if (_audioHandler.playbackState.value.processingState == AudioProcessingState.completed) {
+          await _audioHandler.seek(Duration.zero);
         }
-        await _audioPlayer.play();
+        await _audioHandler.play();
       }
     }
   }
@@ -276,8 +250,7 @@ class _EnhancedMusicPlayerScreenState extends State<EnhancedMusicPlayerScreen> {
     if (_audioFiles.isNotEmpty) {
       int nextIndex;
       if (_isShuffle) {
-        nextIndex =
-        (DateTime.now().millisecondsSinceEpoch % _audioFiles.length);
+        nextIndex = (DateTime.now().millisecondsSinceEpoch % _audioFiles.length);
       } else {
         nextIndex = (_currentIndex + 1) % _audioFiles.length;
       }
@@ -287,8 +260,7 @@ class _EnhancedMusicPlayerScreenState extends State<EnhancedMusicPlayerScreen> {
 
   Future<void> _playPrevious() async {
     if (_audioFiles.isNotEmpty) {
-      int prevIndex =
-          (_currentIndex - 1 + _audioFiles.length) % _audioFiles.length;
+      int prevIndex = (_currentIndex - 1 + _audioFiles.length) % _audioFiles.length;
       await _playAudio(prevIndex);
     }
   }
@@ -315,7 +287,6 @@ class _EnhancedMusicPlayerScreenState extends State<EnhancedMusicPlayerScreen> {
     final prefs = await SharedPreferences.getInstance();
     final lastIndex = prefs.getInt('last_index') ?? 0;
     final lastPath = prefs.getString('last_path');
-
     if (lastPath != null && lastIndex < _audioFiles.length) {
       setState(() {
         _currentIndex = lastIndex;
@@ -328,12 +299,10 @@ class _EnhancedMusicPlayerScreenState extends State<EnhancedMusicPlayerScreen> {
       context,
       listen: false,
     );
-
     if (playlistManager.playlists.isEmpty) {
       Fluttertoast.showToast(msg: 'Create a playlist first');
       return;
     }
-
     showModalBottomSheet(
       context: context,
       builder: (context) {
@@ -378,7 +347,6 @@ class _EnhancedMusicPlayerScreenState extends State<EnhancedMusicPlayerScreen> {
   Widget build(BuildContext context) {
     final playlistManager = Provider.of<PlaylistManager>(context);
     final equalizerManager = Provider.of<EqualizerManager>(context);
-
     List<AudioFile> displayedSongs =
         playlistManager.currentPlaylist?.songs ?? _audioFiles;
 
@@ -436,30 +404,6 @@ class _EnhancedMusicPlayerScreenState extends State<EnhancedMusicPlayerScreen> {
           ),
         ],
       ),
-      /*actions: [
-          IconButton(
-            icon: const Icon(Icons.queue_music),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => PlaylistScreen(allSongs: _audioFiles),
-                ),
-              );
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.settings),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const SettingsScreen(),
-                ),
-              );
-            },
-          ),
-        ],*/
       body: Column(
         children: [
           // Current Playing Info
@@ -527,7 +471,6 @@ class _EnhancedMusicPlayerScreenState extends State<EnhancedMusicPlayerScreen> {
                 ],
               ),
             ),
-
           // Progress Bar
           if (displayedSongs.isNotEmpty)
             Padding(
@@ -551,7 +494,7 @@ class _EnhancedMusicPlayerScreenState extends State<EnhancedMusicPlayerScreen> {
                       min: 0,
                       max: _duration.inSeconds.toDouble(),
                       onChanged: (value) {
-                        _audioPlayer.seek(Duration(seconds: value.toInt()));
+                        _audioHandler.seek(Duration(seconds: value.toInt()));
                       },
                     ),
                   ),
@@ -565,7 +508,6 @@ class _EnhancedMusicPlayerScreenState extends State<EnhancedMusicPlayerScreen> {
                 ],
               ),
             ),
-
           // Control Buttons
           if (displayedSongs.isNotEmpty)
             Padding(
@@ -612,7 +554,6 @@ class _EnhancedMusicPlayerScreenState extends State<EnhancedMusicPlayerScreen> {
                 ],
               ),
             ),
-
           // Audio Files List
           Expanded(
             child: _isLoading
@@ -765,8 +706,7 @@ class _EnhancedMusicPlayerScreenState extends State<EnhancedMusicPlayerScreen> {
 
   @override
   void dispose() {
-    _audioPlayer.dispose();
-    // _nameController.dispose();
+    // Dispose is handled by AudioService
     super.dispose();
   }
 }
